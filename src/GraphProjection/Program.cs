@@ -1,8 +1,10 @@
 ﻿using System;
+using System.Reflection;
 using System.Threading.Tasks;
 using Microsoft.Azure.Documents.ChangeFeedProcessor;
 using Microsoft.Azure.Documents.Client;
 using Microsoft.Extensions.Configuration;
+using SimpleEventStore.AzureDocumentDb;
 
 namespace GraphProjection
 {
@@ -31,10 +33,21 @@ namespace GraphProjection
             var host = new ChangeFeedEventHost(
                 "GraphProjectionObserver",
                 docCollection,
-                auxCollection
+                auxCollection,
+                new ChangeFeedOptions { StartFromBeginning = true},
+                new ChangeFeedHostOptions()
             );
 
-            await host.RegisterObserverAsync<GraphProjectionObserver>();
+            var typeMap = new ConfigurableSerializationTypeMap()
+                .RegisterTypes(
+                    typeof(Program).GetTypeInfo().Assembly,
+                    t => t.Namespace.EndsWith("Events"),
+                    t => t.Name);
+
+            var client = new DocumentClient(new Uri(config["GraphUri"]), config["GraphMasterKey"]);
+            var collection = await client.ReadDocumentCollectionAsync(UriFactory.CreateDocumentCollectionUri("Support", "SupportGraph"));
+
+            await host.RegisterObserverFactoryAsync(new GraphProjectionObserverFactory(client, collection, typeMap));
             Console.WriteLine("Running - press any key to exit");
             Console.Read();
         }
